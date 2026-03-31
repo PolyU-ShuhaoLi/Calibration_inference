@@ -130,7 +130,7 @@ def prepare_prompt_gpt(question: str, tokenizer, reasoning_effort: str = "high")
     return full_prompt
 
 def prepare_prompt_qwen(question: str, tokenizer) -> str:
-    system_msg = "You are a helpful assistant."
+    system_msg = ""
     user_msg = (
         f"{question}\n"
         r"Please reason step by step, and put your final answer within \boxed{}. "  # /no_think
