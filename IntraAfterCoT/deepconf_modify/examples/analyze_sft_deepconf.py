@@ -11,6 +11,7 @@ This script reads `deepthink_offline_qid*.pkl` files and computes:
    - sweep confidence thresholds derived from warmup traces
 
 2) DeepConf-offline confidence subsets over repeated subsamples
+   - majority voting
    - most-confidence
    - top 5% confidence
    - top 10% confidence
@@ -356,6 +357,7 @@ def run_offline_confidence_for_question(
 
     n = min(sample_size, len(traces))
     methods = [
+        "majority_voting",
         "most_confidence",
         "top5_confidence",
         "top10_confidence",
@@ -402,8 +404,10 @@ def run_offline_confidence_for_question(
         pred_most = valid_mean[0][1]
         pred_top5 = vote_top(valid_mean, 0.05)
         pred_top10 = vote_top(valid_mean, 0.10)
+        pred_majority = simple_majority_vote([ans for _, ans in valid_mean])
 
         preds = {
+            "majority_voting": pred_majority,
             "most_confidence": pred_most,
             "top5_confidence": pred_top5,
             "top10_confidence": pred_top10,
@@ -486,7 +490,7 @@ def build_online_dataset_token_vs_accuracy(rows: List[Dict[str, Any]]) -> List[D
 
 
 def build_offline_qid_correctness(rows: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-    target_methods = {"most_confidence", "top5_confidence", "top10_confidence"}
+    target_methods = {"majority_voting", "most_confidence", "top5_confidence", "top10_confidence"}
     by_method_qid: Dict[str, Dict[int, List[bool]]] = defaultdict(lambda: defaultdict(list))
 
     for row in rows:
@@ -709,6 +713,7 @@ def main() -> None:
 
     if offline_summary:
         for method in [
+            "majority_voting",
             "most_confidence",
             "top5_confidence",
             "top10_confidence",
