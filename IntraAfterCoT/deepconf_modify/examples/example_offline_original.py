@@ -314,7 +314,7 @@ def main():
     '''
     parser.add_argument('--window_size', type=int, default=1024,
                        help='Sliding window size for confidence computation')
-    parser.add_argument('--max_tokens', type=int, default=16384, # 16000    32768    8192
+    parser.add_argument('--max_tokens', type=int, default=16384, #
                        help='Maximum tokens per generation')
                        
     parser.add_argument('--temperature', type=float, default=0.7,

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import math
 import os
 import pickle
@@ -166,6 +167,11 @@ def main() -> None:
         action="store_true",
         help="If set, only use questions where n >= max(K).",
     )
+    parser.add_argument(
+        "--json_output",
+        default=None,
+        help="Optional path to write a simple JSON summary.",
+    )
     args = parser.parse_args()
 
     ks = parse_ks(args.ks)
@@ -216,15 +222,39 @@ def main() -> None:
     print(f"require_full_n (n >= {max_k}): {bool(args.require_full_n)}")
     print(f"Traces/question: mean={sum(ns)/len(ns):.2f} min={min(ns)} max={max(ns)}")
     print("\n--- Macro Pass@K (average over questions) ---")
+    passk_summary: Dict[str, Optional[float]] = {}
     for k in ks:
         vals = per_k_values[k]
         if not vals:
             print(f"Pass@{k}: NaN (no question had n >= {k})")
+            passk_summary[f"pass@{k}"] = None
         else:
-            print(f"Pass@{k}: {sum(vals)/len(vals):.6f}")
+            score = sum(vals) / len(vals)
+            print(f"Pass@{k}: {score:.6f}")
+            passk_summary[f"pass@{k}"] = float(score)
     print("===============================================")
+
+    if args.json_output:
+        out = {
+            "meta": {
+                "num_pkls_found": len(paths),
+                "num_questions_used": used,
+                "num_questions_skipped": skipped,
+                "ks": ks,
+                "include_empty_as_incorrect": bool(args.include_empty_as_incorrect),
+                "require_full_n": bool(args.require_full_n),
+                "trace_count_mean": float(sum(ns) / len(ns)),
+                "trace_count_min": int(min(ns)),
+                "trace_count_max": int(max(ns)),
+            },
+            "results": passk_summary,
+        }
+        out_path = os.path.abspath(args.json_output)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(out, f, indent=2)
+        print(f"[INFO] Wrote JSON summary: {out_path}")
 
 
 if __name__ == "__main__":
     main()
-

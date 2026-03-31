@@ -81,6 +81,10 @@ uv pip install -e .
 
 python -m pip uninstall -y transformers || true
 python -m pip install "transformers<5"
+python -m pip install "scikit-learn"
+python -m pip install "accelerate"
+python -m pip install "matplotlib"
+python -m pip install "numpy"
 
 
 
