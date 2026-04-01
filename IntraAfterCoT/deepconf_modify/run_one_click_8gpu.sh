@@ -33,6 +33,7 @@ PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
 INSTALL_ENV="${INSTALL_ENV:-1}"          # 1: install/update env, 0: skip
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-8}"
+PARALLEL_INFERENCE="${PARALLEL_INFERENCE:-0}"   # 1: run SFT/RL inference in parallel
 
 DATASET="${DATASET:-${SCRIPT_DIR}/examples/aime_2024_convert.jsonl}"
 PRECOT_DATA="${PRECOT_DATA:-${DATASET}}"
@@ -96,34 +97,89 @@ fi
 # ----------------------------
 # 1) SFT inference
 # ----------------------------
-echo "[STEP] Running SFT inference..."
-MODEL="${SFT_MODEL}" \
-DATASET="${DATASET}" \
-OUTPUT_DIR="${SFT_OUT_DIR}" \
-RID="sft" \
-MODEL_TYPE="${MODEL_TYPE}" \
-QID_START="${QID_START}" \
-QID_END="${QID_END}" \
-BUDGET="${BUDGET}" \
-TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE}" \
-CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}" \
-bash "${SCRIPT_DIR}/run_sft_model_inference.sh"
+if [[ "${PARALLEL_INFERENCE}" == "1" ]]; then
+  echo "[STEP] Running SFT/RL inference in parallel..."
 
-# ----------------------------
-# 2) RL inference
-# ----------------------------
-echo "[STEP] Running RL inference..."
-MODEL="${RL_MODEL}" \
-DATASET="${DATASET}" \
-OUTPUT_DIR="${RL_OUT_DIR}" \
-RID="rl" \
-MODEL_TYPE="${MODEL_TYPE}" \
-QID_START="${QID_START}" \
-QID_END="${QID_END}" \
-BUDGET="${BUDGET}" \
-TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE}" \
-CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}" \
-bash "${SCRIPT_DIR}/run_rl_model_inference.sh"
+  IFS=',' read -r -a GPU_ARR <<< "${CUDA_VISIBLE_DEVICES}"
+  GPU_COUNT="${#GPU_ARR[@]}"
+  HALF_COUNT=$((GPU_COUNT / 2))
+  if (( HALF_COUNT < 1 )); then
+    echo "[ERROR] PARALLEL_INFERENCE=1 but CUDA_VISIBLE_DEVICES has insufficient GPUs: ${CUDA_VISIBLE_DEVICES}"
+    exit 1
+  fi
+
+  SFT_GPU_LIST="$(IFS=,; echo "${GPU_ARR[*]:0:HALF_COUNT}")"
+  RL_GPU_LIST="$(IFS=,; echo "${GPU_ARR[*]:HALF_COUNT}")"
+  if [[ -z "${RL_GPU_LIST}" ]]; then
+    echo "[ERROR] Failed to split GPUs for parallel inference. CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+    exit 1
+  fi
+
+  echo "[INFO] SFT GPUs: ${SFT_GPU_LIST}"
+  echo "[INFO] RL  GPUs: ${RL_GPU_LIST}"
+  echo "[INFO] TP size per job: ${TENSOR_PARALLEL_SIZE}"
+
+  MODEL="${SFT_MODEL}" \
+  DATASET="${DATASET}" \
+  OUTPUT_DIR="${SFT_OUT_DIR}" \
+  RID="sft" \
+  MODEL_TYPE="${MODEL_TYPE}" \
+  QID_START="${QID_START}" \
+  QID_END="${QID_END}" \
+  BUDGET="${BUDGET}" \
+  TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE}" \
+  CUDA_VISIBLE_DEVICES="${SFT_GPU_LIST}" \
+  bash "${SCRIPT_DIR}/run_sft_model_inference.sh" &
+  SFT_PID=$!
+
+  MODEL="${RL_MODEL}" \
+  DATASET="${DATASET}" \
+  OUTPUT_DIR="${RL_OUT_DIR}" \
+  RID="rl" \
+  MODEL_TYPE="${MODEL_TYPE}" \
+  QID_START="${QID_START}" \
+  QID_END="${QID_END}" \
+  BUDGET="${BUDGET}" \
+  TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE}" \
+  CUDA_VISIBLE_DEVICES="${RL_GPU_LIST}" \
+  bash "${SCRIPT_DIR}/run_rl_model_inference.sh" &
+  RL_PID=$!
+
+  wait "${SFT_PID}"
+  wait "${RL_PID}"
+else
+  # ----------------------------
+  # 1) SFT inference
+  # ----------------------------
+  echo "[STEP] Running SFT inference..."
+  MODEL="${SFT_MODEL}" \
+  DATASET="${DATASET}" \
+  OUTPUT_DIR="${SFT_OUT_DIR}" \
+  RID="sft" \
+  MODEL_TYPE="${MODEL_TYPE}" \
+  QID_START="${QID_START}" \
+  QID_END="${QID_END}" \
+  BUDGET="${BUDGET}" \
+  TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE}" \
+  CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}" \
+  bash "${SCRIPT_DIR}/run_sft_model_inference.sh"
+
+  # ----------------------------
+  # 2) RL inference
+  # ----------------------------
+  echo "[STEP] Running RL inference..."
+  MODEL="${RL_MODEL}" \
+  DATASET="${DATASET}" \
+  OUTPUT_DIR="${RL_OUT_DIR}" \
+  RID="rl" \
+  MODEL_TYPE="${MODEL_TYPE}" \
+  QID_START="${QID_START}" \
+  QID_END="${QID_END}" \
+  BUDGET="${BUDGET}" \
+  TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE}" \
+  CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}" \
+  bash "${SCRIPT_DIR}/run_rl_model_inference.sh"
+fi
 
 # ----------------------------
 # 3) Pass@K (JSON)
@@ -210,4 +266,3 @@ echo "[INFO] Run root: ${RUN_ROOT}"
 echo "[INFO] Pass@K summary: ${REPORT_DIR}/passk_summary.json"
 echo "[INFO] DeepConf results: ${REPORT_DIR}/deepconf_sft.json and ${REPORT_DIR}/deepconf_rl.json"
 echo "[INFO] Pre-CoT figures: ${FIG_DIR}/figure1_sft.png and ${FIG_DIR}/figure1_rl.png"
-
