@@ -223,8 +223,7 @@ python "${SCRIPT_DIR}/examples/analyze_sft_deepconf.py" \
   --offline_sample_size "${OFFLINE_SAMPLE_SIZE}" \
   --offline_resamples "${OFFLINE_RESAMPLES}" \
   --adaptive_divisor "${ADAPTIVE_DIVISOR}" \
-  --output_json "${REPORT_DIR}/deepconf_sft.json" \
-  --keep_per_case
+  --output_json "${REPORT_DIR}/deepconf_sft.json"
 
 python "${SCRIPT_DIR}/examples/analyze_sft_deepconf.py" \
   --results_dir "${RL_OUT_DIR}" \
@@ -237,8 +236,7 @@ python "${SCRIPT_DIR}/examples/analyze_sft_deepconf.py" \
   --offline_sample_size "${OFFLINE_SAMPLE_SIZE}" \
   --offline_resamples "${OFFLINE_RESAMPLES}" \
   --adaptive_divisor "${ADAPTIVE_DIVISOR}" \
-  --output_json "${REPORT_DIR}/deepconf_rl.json" \
-  --keep_per_case
+  --output_json "${REPORT_DIR}/deepconf_rl.json"
 
 # ----------------------------
 # 5) Pre-CoT figure generation
