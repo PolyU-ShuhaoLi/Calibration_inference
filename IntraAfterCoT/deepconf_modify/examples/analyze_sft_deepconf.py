@@ -215,6 +215,46 @@ def simple_majority_vote(answers: List[str]) -> Optional[str]:
     return max(counts.items(), key=lambda x: x[1])[0]
 
 
+def weighted_majority_vote(scored_answers: List[Tuple[float, str]]) -> Optional[str]:
+    """
+    Weighted majority vote by summing confidence scores for each answer.
+
+    Each item is (weight, answer), where higher weight means higher confidence.
+    Non-finite or negative weights are clamped to 0.0.
+
+    Tie-break:
+    1) larger total weight
+    2) larger vote count
+    3) lexicographically smaller answer
+    """
+    if not scored_answers:
+        return None
+
+    total_weight: Dict[str, float] = defaultdict(float)
+    vote_count: Dict[str, int] = defaultdict(int)
+
+    for weight, answer in scored_answers:
+        ans = str(answer)
+        try:
+            w = float(weight)
+        except Exception:
+            w = 0.0
+
+        if not math.isfinite(w) or w < 0:
+            w = 0.0
+
+        total_weight[ans] += w
+        vote_count[ans] += 1
+
+    if not total_weight:
+        return None
+
+    return sorted(
+        total_weight.keys(),
+        key=lambda ans: (-total_weight[ans], -vote_count[ans], ans)
+    )[0]
+
+
 def evaluate_answer(pred: Optional[str], gt: str) -> bool:
     if pred is None:
         return False
@@ -230,6 +270,15 @@ def trace_answer(trace: Dict[str, Any]) -> Optional[str]:
         return None
     ans_str = str(ans).strip()
     return ans_str if ans_str else None
+
+
+def trace_is_correct(trace: Dict[str, Any], gt: str) -> bool:
+    ans = trace_answer(trace)
+    return evaluate_answer(ans, gt)
+
+
+def safe_ratio(num: int, den: int) -> float:
+    return float(num / den) if den > 0 else 0.0
 
 
 def quantile_thresholds(values: List[float], points: int) -> List[float]:
@@ -294,30 +343,57 @@ def run_online_sweep_for_question(
 
         warm_scores_map = [min_group_conf(t, group_size) for t in warm]
         final_scores_map = [min_group_conf(t, group_size) for t in final]
+
         full_tokens = sum(token_count(t) for t in picked)
         warm_tokens = sum(token_count(t) for t in warm)
+
+        # no-early-stop baseline: all sampled paths are counted
+        # path without extracted_answer is treated as incorrect
+        no_early_stop_path_count = len(picked)
+        no_early_stop_correct_path_count = sum(
+            1 for trace in picked if trace_is_correct(trace, ground_truth)
+        )
 
         for sweep_idx, threshold in enumerate(thresholds):
             voting_answers: List[str] = []
 
+            surviving_path_count = 0
+            surviving_correct_path_count = 0
+
+            # warm traces: not early-stopped, but still filtered by threshold
             for trace, score in zip(warm, warm_scores_map):
+                if score < threshold:
+                    continue
+
+                surviving_path_count += 1
+                if trace_is_correct(trace, ground_truth):
+                    surviving_correct_path_count += 1
+
                 ans = trace_answer(trace)
-                if ans is not None and score >= threshold:
+                if ans is not None:
                     voting_answers.append(ans)
 
             final_tokens = 0
             stopped_final = 0
+
             for trace, score in zip(final, final_scores_map):
                 final_tokens += stop_token_count(trace, threshold, group_size)
+
                 if score < threshold:
                     stopped_final += 1
                     continue
+
+                surviving_path_count += 1
+                if trace_is_correct(trace, ground_truth):
+                    surviving_correct_path_count += 1
+
                 ans = trace_answer(trace)
                 if ans is not None:
                     voting_answers.append(ans)
 
             pred = simple_majority_vote(voting_answers)
-            is_correct = evaluate_answer(pred, ground_truth)
+            majority_vote_is_correct = evaluate_answer(pred, ground_truth)
+
             total_tokens = warm_tokens + final_tokens
             token_ratio = (total_tokens / full_tokens) if full_tokens > 0 else 0.0
 
@@ -334,8 +410,29 @@ def run_online_sweep_for_question(
                     "total_tokens": int(total_tokens),
                     "full_tokens": int(full_tokens),
                     "token_ratio": float(token_ratio),
+
+                    # old majority-vote outputs kept for comparison
                     "has_prediction": bool(pred is not None),
-                    "is_correct": bool(is_correct),
+                    "is_correct": bool(majority_vote_is_correct),
+                    "majority_vote_has_prediction": bool(pred is not None),
+                    "majority_vote_is_correct": bool(majority_vote_is_correct),
+
+                    # new path-level outputs
+                    "surviving_path_count": int(surviving_path_count),
+                    "surviving_correct_path_count": int(surviving_correct_path_count),
+                    "surviving_path_accuracy": safe_ratio(
+                        surviving_correct_path_count, surviving_path_count
+                    ),
+
+                    "no_early_stop_path_count": int(no_early_stop_path_count),
+                    "no_early_stop_correct_path_count": int(no_early_stop_correct_path_count),
+                    "no_early_stop_path_accuracy": safe_ratio(
+                        no_early_stop_correct_path_count, no_early_stop_path_count
+                    ),
+
+                    "surviving_path_keep_rate": safe_ratio(
+                        surviving_path_count, no_early_stop_path_count
+                    ),
                 }
             )
 
@@ -359,8 +456,10 @@ def run_offline_confidence_for_question(
     methods = [
         "majority_voting",
         "most_confidence",
-        "top5_confidence",
-        "top10_confidence",
+        "top5_confidence_valid",
+        "top10_confidence_valid",
+        "top5_confidence_base256",
+        "top10_confidence_base256",
     ]
 
     for sample_id in range(resamples):
@@ -369,15 +468,46 @@ def run_offline_confidence_for_question(
 
         group_size = adaptive_group_size(picked, adaptive_divisor)
 
-        # offline ranking is now based on trace mean confidence
+        # ---------- trace-level statistics ----------
+        sample_size_used = len(picked)  # usually 256
+
+        # base-count version: denominator = sample_size_used
+        # trace without extracted_answer is counted as incorrect
+        base_correct_trace_count = sum(
+            1 for trace in picked if trace_is_correct(trace, ground_truth)
+        )
+        trace_accuracy_base_count = safe_ratio(
+            base_correct_trace_count, sample_size_used
+        )
+
+        # valid-only version: denominator = number of traces with extracted_answer
         valid_mean: List[Tuple[float, str]] = []
+        valid_answer_count = 0
+        valid_correct_trace_count = 0
+
+        # all-ranked version for base256 top-k selection
+        all_ranked: List[Tuple[float, Optional[str]]] = []
 
         for trace in picked:
+            score = mean_trace_conf(trace)
             ans = trace_answer(trace)
+
+            all_ranked.append((score, ans))
+
             if ans is None:
                 continue
-            score = mean_trace_conf(trace)
+
             valid_mean.append((score, ans))
+            valid_answer_count += 1
+
+            if evaluate_answer(ans, ground_truth):
+                valid_correct_trace_count += 1
+
+        trace_accuracy_valid_only = safe_ratio(
+            valid_correct_trace_count, valid_answer_count
+        )
+        valid_answer_ratio = safe_ratio(valid_answer_count, sample_size_used)
+        # -------------------------------------------
 
         if not valid_mean:
             for method in methods:
@@ -389,28 +519,60 @@ def run_offline_confidence_for_question(
                         "method": method,
                         "has_prediction": False,
                         "is_correct": False,
+
+                        # trace-level summary
+                        "sample_size_used": int(sample_size_used),
+                        "valid_answer_count": int(valid_answer_count),
+                        "valid_correct_trace_count": int(valid_correct_trace_count),
+                        "trace_accuracy_valid_only": float(trace_accuracy_valid_only),
+                        "base_correct_trace_count": int(base_correct_trace_count),
+                        "trace_accuracy_base_count": float(trace_accuracy_base_count),
+                        "valid_answer_ratio": float(valid_answer_ratio),
                     }
                 )
             continue
 
-        # higher mean trace confidence -> higher confidence
+        # sort by confidence descending
         valid_mean.sort(key=lambda x: x[0], reverse=True)
+        all_ranked.sort(key=lambda x: x[0], reverse=True)
 
-        def vote_top(sorted_pairs: List[Tuple[float, str]], frac: float) -> Optional[str]:
+        def vote_top_valid(
+            sorted_pairs: List[Tuple[float, str]],
+            frac: float,
+        ) -> Optional[str]:
             k = max(1, int(math.ceil(len(sorted_pairs) * frac)))
-            answers = [ans for _, ans in sorted_pairs[:k]]
-            return simple_majority_vote(answers)
+            chosen = sorted_pairs[:k]
+            scored_answers = [(score, ans) for score, ans in chosen]
+            return weighted_majority_vote(scored_answers)
+
+        def vote_top_base(
+            sorted_pairs_all: List[Tuple[float, Optional[str]]],
+            frac: float,
+            base_n: int,
+        ) -> Optional[str]:
+            k = max(1, int(math.ceil(base_n * frac)))
+            chosen = sorted_pairs_all[:k]
+            scored_answers = [
+                (score, ans) for score, ans in chosen if ans is not None
+            ]
+            return weighted_majority_vote(scored_answers)
 
         pred_most = valid_mean[0][1]
-        pred_top5 = vote_top(valid_mean, 0.05)
-        pred_top10 = vote_top(valid_mean, 0.10)
         pred_majority = simple_majority_vote([ans for _, ans in valid_mean])
+
+        pred_top5_valid = vote_top_valid(valid_mean, 0.05)
+        pred_top10_valid = vote_top_valid(valid_mean, 0.10)
+
+        pred_top5_base256 = vote_top_base(all_ranked, 0.05, sample_size_used)
+        pred_top10_base256 = vote_top_base(all_ranked, 0.10, sample_size_used)
 
         preds = {
             "majority_voting": pred_majority,
             "most_confidence": pred_most,
-            "top5_confidence": pred_top5,
-            "top10_confidence": pred_top10,
+            "top5_confidence_valid": pred_top5_valid,
+            "top10_confidence_valid": pred_top10_valid,
+            "top5_confidence_base256": pred_top5_base256,
+            "top10_confidence_base256": pred_top10_base256,
         }
 
         for method in methods:
@@ -423,6 +585,15 @@ def run_offline_confidence_for_question(
                     "method": method,
                     "has_prediction": pred is not None,
                     "is_correct": evaluate_answer(pred, ground_truth),
+
+                    # trace-level summary
+                    "sample_size_used": int(sample_size_used),
+                    "valid_answer_count": int(valid_answer_count),
+                    "valid_correct_trace_count": int(valid_correct_trace_count),
+                    "trace_accuracy_valid_only": float(trace_accuracy_valid_only),
+                    "base_correct_trace_count": int(base_correct_trace_count),
+                    "trace_accuracy_base_count": float(trace_accuracy_base_count),
+                    "valid_answer_ratio": float(valid_answer_ratio),
                 }
             )
 
@@ -437,6 +608,29 @@ def aggregate_online(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     summary: List[Dict[str, Any]] = []
     for sweep_idx in sorted(by_sweep.keys()):
         group = by_sweep[sweep_idx]
+
+        surviving_path_count = sum(int(g["surviving_path_count"]) for g in group)
+        surviving_correct_path_count = sum(int(g["surviving_correct_path_count"]) for g in group)
+
+        no_early_stop_path_count = sum(int(g["no_early_stop_path_count"]) for g in group)
+        no_early_stop_correct_path_count = sum(
+            int(g["no_early_stop_correct_path_count"]) for g in group
+        )
+
+        surviving_path_accuracy = safe_ratio(
+            surviving_correct_path_count, surviving_path_count
+        )
+        no_early_stop_path_accuracy = safe_ratio(
+            no_early_stop_correct_path_count, no_early_stop_path_count
+        )
+
+        majority_vote_accuracy = float(
+            mean([1.0 if g["majority_vote_is_correct"] else 0.0 for g in group])
+        )
+        majority_vote_answer_rate = float(
+            mean([1.0 if g["majority_vote_has_prediction"] else 0.0 for g in group])
+        )
+
         summary.append(
             {
                 "sweep_index": sweep_idx,
@@ -445,8 +639,22 @@ def aggregate_online(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "mean_group_size": float(mean([g["group_size"] for g in group])),
                 "mean_tokens": float(mean([g["total_tokens"] for g in group])),
                 "mean_token_ratio": float(mean([g["token_ratio"] for g in group])),
-                "accuracy": float(mean([1.0 if g["is_correct"] else 0.0 for g in group])),
-                "answer_rate": float(mean([1.0 if g["has_prediction"] else 0.0 for g in group])),
+
+                # new primary online metric
+                "accuracy": float(surviving_path_accuracy),
+                "surviving_path_accuracy": float(surviving_path_accuracy),
+                "no_early_stop_path_accuracy": float(no_early_stop_path_accuracy),
+
+                "surviving_path_count": int(surviving_path_count),
+                "no_early_stop_path_count": int(no_early_stop_path_count),
+                "surviving_path_keep_rate": safe_ratio(
+                    surviving_path_count, no_early_stop_path_count
+                ),
+
+                # old majority-vote metrics retained for comparison
+                "majority_vote_accuracy": float(majority_vote_accuracy),
+                "answer_rate": float(majority_vote_answer_rate),
+                "majority_vote_answer_rate": float(majority_vote_answer_rate),
             }
         )
     return summary
@@ -459,11 +667,33 @@ def aggregate_offline(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]
 
     summary: Dict[str, Dict[str, float]] = {}
     for method, group in by_method.items():
+        valid_answer_count_total = sum(int(g.get("valid_answer_count", 0)) for g in group)
+        valid_correct_trace_count_total = sum(
+            int(g.get("valid_correct_trace_count", 0)) for g in group
+        )
+
+        sample_size_used_total = sum(int(g.get("sample_size_used", 0)) for g in group)
+        base_correct_trace_count_total = sum(
+            int(g.get("base_correct_trace_count", 0)) for g in group
+        )
+
         summary[method] = {
+            # existing prediction-level metrics
             "cases": float(len(group)),
             "accuracy": float(mean([1.0 if g["is_correct"] else 0.0 for g in group])),
             "answer_rate": float(mean([1.0 if g["has_prediction"] else 0.0 for g in group])),
             "mean_group_size": float(mean([g["group_size"] for g in group])),
+
+            # new trace-level metrics
+            "trace_accuracy_valid_only": float(
+                safe_ratio(valid_correct_trace_count_total, valid_answer_count_total)
+            ),
+            "trace_accuracy_base_count": float(
+                safe_ratio(base_correct_trace_count_total, sample_size_used_total)
+            ),
+            "valid_answer_count_total": float(valid_answer_count_total),
+            "sample_size_used_total": float(sample_size_used_total),
+            "mean_valid_answer_ratio": float(mean([g.get("valid_answer_ratio", 0.0) for g in group])),
         }
     return summary
 
@@ -476,13 +706,46 @@ def build_online_dataset_token_vs_accuracy(rows: List[Dict[str, Any]]) -> List[D
     points: List[Dict[str, Any]] = []
     for sweep_idx in sorted(by_sweep.keys()):
         group = by_sweep[sweep_idx]
+
+        surviving_path_count = sum(int(g["surviving_path_count"]) for g in group)
+        surviving_correct_path_count = sum(int(g["surviving_correct_path_count"]) for g in group)
+
+        no_early_stop_path_count = sum(int(g["no_early_stop_path_count"]) for g in group)
+        no_early_stop_correct_path_count = sum(
+            int(g["no_early_stop_correct_path_count"]) for g in group
+        )
+
+        surviving_path_accuracy = safe_ratio(
+            surviving_correct_path_count, surviving_path_count
+        )
+        no_early_stop_path_accuracy = safe_ratio(
+            no_early_stop_correct_path_count, no_early_stop_path_count
+        )
+        majority_vote_accuracy = float(
+            mean([1.0 if g["majority_vote_is_correct"] else 0.0 for g in group])
+        )
+
         points.append(
             {
                 "sweep_index": sweep_idx,
                 "threshold": float(mean([g["threshold"] for g in group])),
                 "token_usage": float(mean([g["total_tokens"] for g in group])),
                 "token_ratio": float(mean([g["token_ratio"] for g in group])),
-                "accuracy": float(mean([1.0 if g["is_correct"] else 0.0 for g in group])),
+
+                # new primary metric
+                "accuracy": float(surviving_path_accuracy),
+                "surviving_path_accuracy": float(surviving_path_accuracy),
+                "no_early_stop_path_accuracy": float(no_early_stop_path_accuracy),
+
+                "surviving_path_count": int(surviving_path_count),
+                "no_early_stop_path_count": int(no_early_stop_path_count),
+                "surviving_path_keep_rate": safe_ratio(
+                    surviving_path_count, no_early_stop_path_count
+                ),
+
+                # old metric for comparison
+                "majority_vote_accuracy": float(majority_vote_accuracy),
+
                 "num_rows": len(group),
             }
         )
@@ -490,7 +753,14 @@ def build_online_dataset_token_vs_accuracy(rows: List[Dict[str, Any]]) -> List[D
 
 
 def build_offline_qid_correctness(rows: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-    target_methods = {"majority_voting", "most_confidence", "top5_confidence", "top10_confidence"}
+    target_methods = {
+        "majority_voting",
+        "most_confidence",
+        "top5_confidence_valid",
+        "top10_confidence_valid",
+        "top5_confidence_base256",
+        "top10_confidence_base256",
+    }
     by_method_qid: Dict[str, Dict[int, List[bool]]] = defaultdict(lambda: defaultdict(list))
 
     for row in rows:
@@ -547,6 +817,10 @@ def build_dataset_view_json(
                 "accuracy": stats["accuracy"],
                 "answer_rate": stats["answer_rate"],
                 "cases": stats["cases"],
+
+                "trace_accuracy_valid_only": stats["trace_accuracy_valid_only"],
+                "trace_accuracy_base_count": stats["trace_accuracy_base_count"],
+                "mean_valid_answer_ratio": stats["mean_valid_answer_ratio"],
             }
             for method, stats in offline_summary.items()
         },
@@ -706,21 +980,30 @@ def main() -> None:
     if online_summary:
         best_acc = max(online_summary, key=lambda x: x["accuracy"])
         print(
-            "Online best accuracy sweep index="
+            "Online best surviving-path accuracy sweep index="
             f"{best_acc['sweep_index']} acc={best_acc['accuracy']:.4f} "
-            f"token_ratio={best_acc['mean_token_ratio']:.4f}"
+            f"token_ratio={best_acc['mean_token_ratio']:.4f} "
+            f"no_early_stop_path_accuracy={best_acc['no_early_stop_path_accuracy']:.4f} "
+            f"majority_vote_accuracy={best_acc['majority_vote_accuracy']:.4f}"
         )
 
     if offline_summary:
         for method in [
             "majority_voting",
             "most_confidence",
-            "top5_confidence",
-            "top10_confidence",
+            "top5_confidence_valid",
+            "top10_confidence_valid",
+            "top5_confidence_base256",
+            "top10_confidence_base256",
         ]:
             stats = offline_summary.get(method)
             if stats:
-                print(f"Offline {method}: accuracy={stats['accuracy']:.4f}")
+                print(
+                    f"Offline {method}: "
+                    f"accuracy={stats['accuracy']:.4f} "
+                    f"trace_acc_valid={stats['trace_accuracy_valid_only']:.4f} "
+                    f"trace_acc_base256={stats['trace_accuracy_base_count']:.4f}"
+                )
 
 
 if __name__ == "__main__":

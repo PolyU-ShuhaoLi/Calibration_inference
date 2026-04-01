@@ -15,3 +15,39 @@ bash run_one_click_8gpu.sh
 Here, SFT_MODEL should be "SFT_training/LlamaFactory/saves/Qwen2.5-7B-Instruct/full/train_deepscaler_simplelr_think/checkpoint-500" (这是一个相对路径，找到并改为绝对路径) 
 
 Here, RL_MODEL should be "RL_training/checkpoints/verl-grpo_Qwen2.5-7B-Instruct_rl_data_epochs3_max_response16384_batch16_rollout8_klcoef0.0001_entcoef0.001/global_step_4000" (这是一个相对路径，找到并改为绝对路径)
+
+
+---
+
+4.1 20:06 Update
+
+基于已有推理结果，提取数据，得到一些csv和json文件。
+您只需要运行以下命令：
+
+```bash
+cd IntraAfterCoT/deepconf_modify
+
+
+RUN_ROOT=/path/to/previous/full_run \
+SFT_MODEL=/path/to/sft_model \
+RL_MODEL=/path/to/rl_model \
+bash postprocess.sh
+
+
+这里 RUN_ROOT 是：
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
+RUN_ROOT="${RUN_ROOT:-${SCRIPT_DIR}/runs/full_${RUN_TAG}}"
+
+也就是说把 RUN_ROOT 指定为刚刚完成推理的这个 runs/full_... 路径
+
+```
+
+
+运行完后，文件在：
+
+- `REPORT_DIR` (default: `<RUN_ROOT>/reports_rerun_<timestamp>`)
+- `FIG_DIR` (default: `<RUN_ROOT>/figures_rerun_<timestamp>`)
+
+您看是否方便将 REPORT_DIR 和 FIG_DIR 路径下的文件导出，都是KB级别的文件，加起来的量应该也就几MB.

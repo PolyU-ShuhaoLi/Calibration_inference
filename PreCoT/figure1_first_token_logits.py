@@ -51,8 +51,7 @@ except Exception:
 
 
 DEFAULT_SYSTEM_PROMPT = (
-    "You are a helpful math competition assistant. "
-    "Solve the problem step by step and give only the final integer answer."
+    ""
 )
 
 FILENAME_RE = re.compile(
@@ -232,9 +231,13 @@ def collect_labels(results_dir: Path, problems: List[dict]) -> Tuple[np.ndarray,
 
 
 def build_prompt(tokenizer, question: str, system_prompt: str) -> str:
+    user_msg = (
+    f"{question}\n"
+    r"Please reason step by step, and put your final answer within \boxed{}."
+    )
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": question},
+        {"role": "user", "content": user_msg},
     ]
     try:
         return tokenizer.apply_chat_template(
