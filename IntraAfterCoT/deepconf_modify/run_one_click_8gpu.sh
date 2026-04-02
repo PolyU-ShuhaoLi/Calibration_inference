@@ -16,9 +16,6 @@ set -euo pipefail
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-PRECOT_DIR="${PROJECT_ROOT}/PreCoT"
-
 # ----------------------------
 # User config (edit these)
 # ----------------------------
@@ -182,85 +179,32 @@ else
 fi
 
 # ----------------------------
-# 3) Pass@K (JSON)
+# 3/4/5) Postprocess pipeline
 # ----------------------------
-echo "[STEP] Computing Pass@K JSON..."
-python "${SCRIPT_DIR}/compute_passk_from_pkls.py" \
-  --inputs "${SFT_OUT_DIR}" \
-  --ks "${PASSK_LIST}" \
-  --include_empty_as_incorrect \
-  --json_output "${REPORT_DIR}/passk_sft.json"
-
-python "${SCRIPT_DIR}/compute_passk_from_pkls.py" \
-  --inputs "${RL_OUT_DIR}" \
-  --ks "${PASSK_LIST}" \
-  --include_empty_as_incorrect \
-  --json_output "${REPORT_DIR}/passk_rl.json"
-
-python - <<PY
-import json
-from pathlib import Path
-report_dir = Path(r"${REPORT_DIR}")
-sft = json.loads((report_dir / "passk_sft.json").read_text(encoding="utf-8"))
-rl = json.loads((report_dir / "passk_rl.json").read_text(encoding="utf-8"))
-summary = {"sft": sft, "rl": rl}
-(report_dir / "passk_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-print(f"[INFO] Wrote: {report_dir / 'passk_summary.json'}")
-PY
-
-# ----------------------------
-# 4) DeepConf offline/online analysis
-# ----------------------------
-echo "[STEP] Running DeepConf analysis..."
-python "${SCRIPT_DIR}/examples/analyze_sft_deepconf.py" \
-  --results_dir "${SFT_OUT_DIR}" \
-  --dataset "${DATASET}" \
-  --rid "sft" \
-  --online_warmup_traces "${ONLINE_WARMUP_TRACES}" \
-  --online_total_budget "${ONLINE_TOTAL_BUDGET}" \
-  --online_sweep_points "${ONLINE_SWEEP_POINTS}" \
-  --online_resamples "${ONLINE_RESAMPLES}" \
-  --offline_sample_size "${OFFLINE_SAMPLE_SIZE}" \
-  --offline_resamples "${OFFLINE_RESAMPLES}" \
-  --adaptive_divisor "${ADAPTIVE_DIVISOR}" \
-  --output_json "${REPORT_DIR}/deepconf_sft.json"
-
-python "${SCRIPT_DIR}/examples/analyze_sft_deepconf.py" \
-  --results_dir "${RL_OUT_DIR}" \
-  --dataset "${DATASET}" \
-  --rid "rl" \
-  --online_warmup_traces "${ONLINE_WARMUP_TRACES}" \
-  --online_total_budget "${ONLINE_TOTAL_BUDGET}" \
-  --online_sweep_points "${ONLINE_SWEEP_POINTS}" \
-  --online_resamples "${ONLINE_RESAMPLES}" \
-  --offline_sample_size "${OFFLINE_SAMPLE_SIZE}" \
-  --offline_resamples "${OFFLINE_RESAMPLES}" \
-  --adaptive_divisor "${ADAPTIVE_DIVISOR}" \
-  --output_json "${REPORT_DIR}/deepconf_rl.json"
-
-# ----------------------------
-# 5) Pre-CoT figure generation
-# ----------------------------
-echo "[STEP] Running Pre-CoT figure generation..."
-python "${PRECOT_DIR}/figure1_first_token_logits.py" \
-  --model "${SFT_MODEL}" \
-  --data "${PRECOT_DATA}" \
-  --results_dir "${SFT_OUT_DIR}" \
-  --output "${FIG_DIR}/figure1_sft.png" \
-  --cache "${FIG_DIR}/cache_sft.npz" \
-  --device cuda
-
-python "${PRECOT_DIR}/figure1_first_token_logits.py" \
-  --model "${RL_MODEL}" \
-  --data "${PRECOT_DATA}" \
-  --results_dir "${RL_OUT_DIR}" \
-  --output "${FIG_DIR}/figure1_rl.png" \
-  --cache "${FIG_DIR}/cache_rl.npz" \
-  --device cuda
+echo "[STEP] Running postprocess.sh for steps 3/4/5..."
+RUN_ROOT="${RUN_ROOT}" \
+SFT_OUT_DIR="${SFT_OUT_DIR}" \
+RL_OUT_DIR="${RL_OUT_DIR}" \
+REPORT_DIR="${REPORT_DIR}" \
+FIG_DIR="${FIG_DIR}" \
+ENV_NAME="${ENV_NAME}" \
+SFT_MODEL="${SFT_MODEL}" \
+RL_MODEL="${RL_MODEL}" \
+DATASET="${DATASET}" \
+PRECOT_DATA="${PRECOT_DATA}" \
+PASSK_LIST="${PASSK_LIST}" \
+ONLINE_WARMUP_TRACES="${ONLINE_WARMUP_TRACES}" \
+ONLINE_TOTAL_BUDGET="${ONLINE_TOTAL_BUDGET}" \
+ONLINE_SWEEP_POINTS="${ONLINE_SWEEP_POINTS}" \
+ONLINE_RESAMPLES="${ONLINE_RESAMPLES}" \
+OFFLINE_SAMPLE_SIZE="${OFFLINE_SAMPLE_SIZE}" \
+OFFLINE_RESAMPLES="${OFFLINE_RESAMPLES}" \
+ADAPTIVE_DIVISOR="${ADAPTIVE_DIVISOR}" \
+bash "${SCRIPT_DIR}/postprocess.sh"
 
 echo
 echo "[DONE] Full one-click pipeline finished."
 echo "[INFO] Run root: ${RUN_ROOT}"
 echo "[INFO] Pass@K summary: ${REPORT_DIR}/passk_summary.json"
 echo "[INFO] DeepConf results: ${REPORT_DIR}/deepconf_sft.json and ${REPORT_DIR}/deepconf_rl.json"
-echo "[INFO] Pre-CoT figures: ${FIG_DIR}/figure1_sft.png and ${FIG_DIR}/figure1_rl.png"
+echo "[INFO] Pre-CoT CSV: ${FIG_DIR}/figure1_sft_points.csv and ${FIG_DIR}/figure1_rl_points.csv"

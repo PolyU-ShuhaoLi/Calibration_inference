@@ -35,33 +35,13 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 bash run_one_click_8gpu.sh
 
----
-
-4.1 20:06 Update
-
-基于已有推理结果，提取数据，得到一些csv和json文件（这个脚本两分钟就能跑完）。
-您只需要运行以下命令：
-
-```bash
-cd IntraAfterCoT/deepconf_modify
-
-
-RUN_ROOT=/path/to/previous/full_run \
-SFT_MODEL=/path/to/sft_model \
-RL_MODEL=/path/to/rl_model \
-bash postprocess.sh
-
-
 这里 RUN_ROOT 是：
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
 RUN_ROOT="${RUN_ROOT:-${SCRIPT_DIR}/runs/full_${RUN_TAG}}"
 
-也就是说把 RUN_ROOT 指定为刚刚完成推理的这个 runs/full_... 路径
-
-```
-
+也就是说 RUN_ROOT 为刚刚完成推理的这个 runs/full_... 路径
 
 运行完后，文件在：
 
