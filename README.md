@@ -39,7 +39,7 @@ bash run_one_click_8gpu.sh
 
 4.1 20:06 Update
 
-基于已有推理结果，提取数据，得到一些csv和json文件。
+基于已有推理结果，提取数据，得到一些csv和json文件（这个脚本两分钟就能跑完）。
 您只需要运行以下命令：
 
 ```bash
