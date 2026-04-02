@@ -87,7 +87,7 @@ if [[ "${INSTALL_ENV}" == "1" ]]; then
   uv pip install "vllm==0.10.2" --torch-backend=auto
   uv pip install "git+https://bgithub.xyz/hao-ai-lab/Dynasor.git"
   uv pip install -e "${SCRIPT_DIR}"
-  python -m pip uninstall -y transformers || true
+  python -m pip uninstall -y transformers
   python -m pip install "transformers<5" scikit-learn accelerate matplotlib numpy scipy
 else
   echo "[INFO] Skipping environment installation (INSTALL_ENV=${INSTALL_ENV})"
