@@ -92,6 +92,8 @@ def save_points_data(
     labels: np.ndarray,
     keep_idx: np.ndarray,
     problems: List[dict],
+    entropies: np.ndarray,
+    deepconf_confidences: np.ndarray,
     output: Path,
     ) -> None:
     label_map = {
@@ -110,14 +112,20 @@ def save_points_data(
             "label_name",
             "tsne_x",
             "tsne_y",
+            "first_token_entropy",
+            "first_token_deepconf_confidence",
             "ground_truth",
             "question",
         ])
 
-        for row_id, (qid, coord, label) in enumerate(zip(keep_idx, coords, labels)):
+        for row_id, (qid, coord, label, entropy, deepconf_conf) in enumerate(
+            zip(keep_idx, coords, labels, entropies, deepconf_confidences)
+        ):
             qid = int(qid)
             label = int(label)
             x, y = float(coord[0]), float(coord[1])
+            entropy = float(entropy)
+            deepconf_conf = float(deepconf_conf)
 
             problem = problems[qid]
             question = str(problem.get("question", ""))
@@ -130,9 +138,69 @@ def save_points_data(
                 label_map[label],
                 x,
                 y,
+                entropy,
+                deepconf_conf,
                 ground_truth,
                 question,
             ])
+
+
+def save_metrics_summary(
+    labels: np.ndarray,
+    entropies: np.ndarray,
+    deepconf_confidences: np.ndarray,
+    output: Path,
+) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    def stats(vals: np.ndarray) -> Tuple[float, float]:
+        if vals.size == 0:
+            return float("nan"), float("nan")
+        return float(np.mean(vals)), float(np.std(vals))
+
+    rows = []
+    groups = [
+        ("overall", np.ones_like(labels, dtype=bool)),
+        ("correct", labels == 0),
+        ("wrong", labels == 1),
+    ]
+    for name, mask in groups:
+        ent_mean, ent_std = stats(entropies[mask])
+        dconf_mean, dconf_std = stats(deepconf_confidences[mask])
+        rows.append(
+            {
+                "group": name,
+                "count": int(mask.sum()),
+                "entropy_mean": ent_mean,
+                "entropy_std": ent_std,
+                "deepconf_confidence_mean": dconf_mean,
+                "deepconf_confidence_std": dconf_std,
+            }
+        )
+
+    with output.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "group",
+                "count",
+                "entropy_mean",
+                "entropy_std",
+                "deepconf_confidence_mean",
+                "deepconf_confidence_std",
+            ]
+        )
+        for row in rows:
+            writer.writerow(
+                [
+                    row["group"],
+                    row["count"],
+                    row["entropy_mean"],
+                    row["entropy_std"],
+                    row["deepconf_confidence_mean"],
+                    row["deepconf_confidence_std"],
+                ]
+            )
 
 def load_problems(path: Path) -> List[dict]:
     problems: List[dict] = []
@@ -282,6 +350,25 @@ def extract_first_token_representations(
     return np.stack(reps, axis=0)
 
 
+def compute_first_token_entropy(log_probs: np.ndarray) -> np.ndarray:
+    """
+    log_probs: shape (N, vocab), already log_softmax.
+    returns:
+      entropies: shape (N,), -sum(p * log p)
+    """
+    probs = np.exp(log_probs)
+    entropies = -np.sum(probs * log_probs, axis=1)
+    return entropies
+
+
+def compute_deepconf_confidence_whole_vocab(log_probs: np.ndarray) -> np.ndarray:
+    """
+    DeepConf-style confidence over full vocabulary:
+      confidence = -mean(log p_i) over all vocabulary tokens.
+    """
+    return -np.mean(log_probs, axis=1)
+
+
 def plot_figure(coords: np.ndarray, labels: np.ndarray, output: Path) -> None:
     palette = {
         0: {"name": "correct", "color": "#3fa7ff"},
@@ -371,6 +458,7 @@ def main() -> None:
     parser.add_argument("--system_prompt", default=DEFAULT_SYSTEM_PROMPT)
     parser.add_argument("--device", default=("cuda" if torch.cuda.is_available() else "cpu"))
     parser.add_argument("--points_output", default="figure1_first_token_logits_points.csv", help="Output CSV file containing point coordinates and labels")
+    parser.add_argument("--metrics_output", default="figure1_first_token_logits_metrics.csv", help="Output CSV file for confidence/entropy summary")
     args = parser.parse_args()
 
     data_path = Path(args.data)
@@ -378,6 +466,7 @@ def main() -> None:
     cache_path = Path(args.cache)
     output_path = Path(args.output)
     points_output_path = Path(args.points_output)
+    metrics_output_path = Path(args.metrics_output)
 
     print(f"Loading dataset: {data_path}")
     problems = load_problems(data_path)
@@ -432,6 +521,9 @@ def main() -> None:
     if reps.shape[0] < 3:
         raise RuntimeError("Need at least 3 labeled samples for PCA/t-SNE visualization.")
 
+    entropies = compute_first_token_entropy(reps)
+    deepconf_confidences = compute_deepconf_confidence_whole_vocab(reps)
+
     n_pca = min(args.pca_dim, reps.shape[0] - 1, reps.shape[1])
     print(f"PCA: {reps.shape[1]} -> {n_pca}")
     pca = PCA(n_components=n_pca, random_state=42)
@@ -448,7 +540,11 @@ def main() -> None:
         learning_rate="auto",
     )
     coords = tsne.fit_transform(reps_pca)
-    save_points_data(coords, labels, keep_idx, problems, points_output_path)
+    save_points_data(
+        coords, labels, keep_idx, problems,
+        entropies, deepconf_confidences, points_output_path
+    )
+    save_metrics_summary(labels, entropies, deepconf_confidences, metrics_output_path)
     
     plot_figure(coords, labels, output_path)
 

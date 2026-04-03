@@ -152,6 +152,8 @@ echo "[STEP] Re-running Pre-CoT (CSV only)..."
 
 SFT_POINTS_CSV="${FIG_DIR}/figure1_sft_points.csv"
 RL_POINTS_CSV="${FIG_DIR}/figure1_rl_points.csv"
+SFT_METRICS_CSV="${FIG_DIR}/figure1_sft_metrics.csv"
+RL_METRICS_CSV="${FIG_DIR}/figure1_rl_metrics.csv"
 SFT_TMP_PNG="${FIG_DIR}/.tmp_figure1_sft.png"
 RL_TMP_PNG="${FIG_DIR}/.tmp_figure1_rl.png"
 SFT_TMP_CACHE="${FIG_DIR}/.tmp_cache_sft.npz"
@@ -163,6 +165,7 @@ python "${PRECOT_DIR}/figure1_first_token_logits.py" \
   --results_dir "${SFT_OUT_DIR}" \
   --output "${SFT_TMP_PNG}" \
   --points_output "${SFT_POINTS_CSV}" \
+  --metrics_output "${SFT_METRICS_CSV}" \
   --cache "${SFT_TMP_CACHE}" \
   --device cuda:0 \
   --recompute_logits
@@ -173,6 +176,7 @@ python "${PRECOT_DIR}/figure1_first_token_logits.py" \
   --results_dir "${RL_OUT_DIR}" \
   --output "${RL_TMP_PNG}" \
   --points_output "${RL_POINTS_CSV}" \
+  --metrics_output "${RL_METRICS_CSV}" \
   --cache "${RL_TMP_CACHE}" \
   --device cuda:1 \
   --recompute_logits
@@ -184,4 +188,5 @@ echo
 echo "[DONE] Postprocess re-run finished."
 echo "[INFO] Pass@K summary: ${REPORT_DIR}/passk_summary.json"
 echo "[INFO] DeepConf: ${REPORT_DIR}/deepconf_sft.json and ${REPORT_DIR}/deepconf_rl.json"
-echo "[INFO] Pre-CoT CSV: ${SFT_POINTS_CSV} and ${RL_POINTS_CSV}"
+echo "[INFO] Pre-CoT points CSV: ${SFT_POINTS_CSV} and ${RL_POINTS_CSV}"
+echo "[INFO] Pre-CoT metrics CSV: ${SFT_METRICS_CSV} and ${RL_METRICS_CSV}"
