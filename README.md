@@ -58,10 +58,6 @@ RUN_ROOT="${RUN_ROOT:-${SCRIPT_DIR}/runs/full_${RUN_TAG}}"
 
 cd 到 Calibration_inference/IntraAfterCoT/deepconf_modify 路径下
 
-这里指定 RUN_ROOT 为您群里说的这个路径：runs/full_YYYYMMDD_HHMMSS/sft_offline 和 runs/full_YYYYMMDD_HHMMSS/rl_offline 里有一些文件和log。
-
-如果命令行先前指定过 SFT_MODEL ， RL_MODEL 和 ENV_NAME，其实也不需要额外指定了
-
 运行 bash postprocess.sh就好了
 
 RUN_ROOT=/path/to/your/runs/full_YYYYMMDD_HHMMSS \
@@ -69,6 +65,10 @@ SFT_MODEL=/path/to/your_sft_model \
 RL_MODEL=/path/to/your_rl_model \
 ENV_NAME=deepconf \
 bash postprocess.sh
+
+这里指定 RUN_ROOT 为您群里说的这个路径：runs/full_YYYYMMDD_HHMMSS/sft_offline 和 runs/full_YYYYMMDD_HHMMSS/rl_offline 里有一些文件和log。
+
+如果命令行先前指定过 SFT_MODEL ， RL_MODEL 和 ENV_NAME，其实也不需要额外指定了
 
 运行完查看最新时间的 reports_rerun_<timestamp> 和 figures_rerun_<timestamp> 是否有文件产出，有的话导出
 
