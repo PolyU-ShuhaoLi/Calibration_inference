@@ -266,6 +266,8 @@ def main():
     parser = argparse.ArgumentParser(description='DeepThinkLLM Offline Mode Example')
     parser.add_argument('--model', type=str, default="openai/gpt-oss-120b",
                        help='Model path or name')
+    parser.add_argument('--tokenizer', type=str, default=None,
+                       help='Tokenizer path or name (defaults to --model)')
     parser.add_argument('--tensor_parallel_size', type=int, default=1,
                        help='Tensor parallel size for model')
     parser.add_argument('--dataset', type=str, default="aime25.jsonl",
@@ -346,7 +348,12 @@ def main():
     print(f"Processing question {args.qid}: {question[:100]}...")
     
     # Initialize DeepThinkLLM
-    deep_llm = DeepThinkLLM(model=args.model, tensor_parallel_size=args.tensor_parallel_size, enable_prefix_caching=True)
+    deep_llm = DeepThinkLLM(
+        model=args.model,
+        tokenizer=(args.tokenizer if args.tokenizer else args.model),
+        tensor_parallel_size=args.tensor_parallel_size,
+        enable_prefix_caching=True,
+    )
 
 
     # Prepare prompt

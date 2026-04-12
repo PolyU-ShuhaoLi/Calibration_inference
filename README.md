@@ -81,4 +81,6 @@ export MODEL=/data/llm/RL_model/simpleRL-reason-ckpts/verl-grpo_Qwen2.5-7B-Instr
 
 bash postprocess_single_model.sh
 
+export MODEL=/data/llm/LlamaFactory/saves/Qwen2.5-7B-Instruct/full/train_deepscaler_simplelr_think/checkpoint-5/global_step5
 
+bash run_sft_model_inference.sh

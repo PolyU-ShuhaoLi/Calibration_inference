@@ -34,6 +34,8 @@ class DeepThinkLLM:
         """
         self.model_name = model
         self.vllm_kwargs = vllm_kwargs
+        tokenizer_name = vllm_kwargs.get("tokenizer", model)
+        self.tokenizer_name = tokenizer_name
         
         # Initialize vLLM
         default_kwargs = {
@@ -52,7 +54,7 @@ class DeepThinkLLM:
         # Initialize tokenizer
         print("Initializing tokenizer...")
         tokenizer_init_start = time.time()
-        self.tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
         tokenizer_init_time = time.time() - tokenizer_init_start
         print(f"Tokenizer initialized in {tokenizer_init_time:.2f} seconds")
         

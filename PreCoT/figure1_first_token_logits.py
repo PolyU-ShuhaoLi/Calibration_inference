@@ -137,9 +137,7 @@ def save_points_data(
                 x,
                 y,
                 entropy,
-                deepconf_conf,
-                ground_truth,
-                question,
+                deepconf_conf
             ])
 
 
