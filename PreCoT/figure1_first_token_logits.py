@@ -440,6 +440,11 @@ def main() -> None:
         description="Generate Figure-1 style visualization with first-token logits and correct/wrong labels."
     )
     parser.add_argument("--model", required=True, help="HF model name or local path")
+    parser.add_argument(
+        "--tokenizer",
+        default=None,
+        help="HF tokenizer name or local path (defaults to --model)",
+    )
     parser.add_argument("--data", default=str(Path(__file__).parent / "aime2025.jsonl"), help="JSONL dataset path")
     parser.add_argument("--results_dir", required=True, help="Directory containing deepthink_offline_qid*.pkl")
     parser.add_argument("--output", default="figure1_first_token_logits.png", help="Output figure path")
@@ -463,6 +468,7 @@ def main() -> None:
     output_path = Path(args.output)
     points_output_path = Path(args.points_output)
     metrics_output_path = Path(args.metrics_output)
+    tokenizer_name = args.tokenizer if args.tokenizer else args.model
 
     print(f"Loading dataset: {data_path}")
     problems = load_problems(data_path)
@@ -489,7 +495,8 @@ def main() -> None:
         print(f"Loaded logits cache: {cache_path}")
     else:
         print(f"Loading model: {args.model} on {args.device}")
-        tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
+        print(f"Loading tokenizer: {tokenizer_name}")
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
         model = AutoModelForCausalLM.from_pretrained(
             args.model,
             torch_dtype=(torch.float16 if "cuda" in args.device else torch.float32),

@@ -24,6 +24,7 @@ PRECOT_DIR="${PROJECT_ROOT}/PreCoT"
 # ----------------------------
 PKL_DIR="${PKL_DIR:-}"
 MODEL="${MODEL:-}"
+TOKENIZER="${TOKENIZER:-$MODEL}"
 
 # ----------------------------
 # Runtime config
@@ -99,6 +100,7 @@ METRICS_TXT="${REPORT_DIR}/metrics_summary.txt"
 
 echo "[INFO] PKL_DIR=${PKL_DIR}"
 echo "[INFO] MODEL=${MODEL}"
+echo "[INFO] TOKENIZER=${TOKENIZER}"
 if [[ -n "${RID}" ]]; then
   echo "[INFO] RID=${RID}"
 else
@@ -147,6 +149,7 @@ python "${SCRIPT_DIR}/examples/analyze_sft_deepconf.py" \
 echo "[STEP] Running Pre-CoT (enabled)..."
 python "${PRECOT_DIR}/figure1_first_token_logits.py" \
   --model "${MODEL}" \
+  --tokenizer "${TOKENIZER}" \
   --data "${PRECOT_DATA}" \
   --results_dir "${PKL_DIR}" \
   --output "${PRECOT_TMP_PNG}" \

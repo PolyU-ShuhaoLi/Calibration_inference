@@ -81,6 +81,15 @@ export MODEL=/data/llm/RL_model/simpleRL-reason-ckpts/verl-grpo_Qwen2.5-7B-Instr
 
 bash postprocess_single_model.sh
 
-export MODEL=/data/llm/LlamaFactory/saves/Qwen2.5-7B-Instruct/full/train_deepscaler_simplelr_think/checkpoint-5/global_step5
+export MODEL=/data/llm/LlamaFactory/saves/Qwen2.5-7B-Instruct/full/train_deepscaler_simplelr_think/checkpoint-5
 
+export TOKENIZER=SFT_training/LlamaFactory/.ms_cache/models/Qwen2.5-7B-Instruct/
+
+TOKENIZER=/data/llm/Qwen2.5-7B-Instruct \
+MODEL=/data/llm/LlamaFactory/saves/Qwen2.5-7B-Instruct/full/train_deepscaler_simplelr_think/checkpoint-5 \
 bash run_sft_model_inference.sh
+
+export PKL_DIR=/data/llm/Calibration_inference/IntraAfterCoT/deepconf_modify/sft_thinking_aime2024
+export MODEL=/data/llm/RL_model/simpleRL-reason-ckpts/verl-grpo_Qwen2.5-7B-Instruct_simplelr_qwen_level3to5_epochs1_max_response4096_batch2_rollout8_klcoef0.0001_entcoef0.001/global_step_1/actor/huggingface
+export TOKENIZER=/data/llm/Qwen2.5-7B-Instruct
+bash postprocess_single_model.sh
