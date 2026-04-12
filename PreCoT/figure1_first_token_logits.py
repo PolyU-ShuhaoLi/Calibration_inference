@@ -114,8 +114,6 @@ def save_points_data(
             "tsne_y",
             "first_token_entropy",
             "first_token_deepconf_confidence",
-            "ground_truth",
-            "question",
         ])
 
         for row_id, (qid, coord, label, entropy, deepconf_conf) in enumerate(

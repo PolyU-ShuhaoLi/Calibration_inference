@@ -31,8 +31,8 @@ MODEL="${MODEL:-}"
 ENV_NAME="${ENV_NAME:-deepconf}"
 DATASET="${DATASET:-${SCRIPT_DIR}/examples/aime_2024_convert.jsonl}"
 PRECOT_DATA="${PRECOT_DATA:-${DATASET}}"
-PRECOT_DEVICE="${PRECOT_DEVICE:-cuda:0}"
-RID="${RID:-rl}"
+PRECOT_DEVICE="${PRECOT_DEVICE:-cuda:7}"
+RID="${RID:-}"   # empty means no rid filter (analyze all matching pkls)
 
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
 OUT_ROOT="${OUT_ROOT:-${SCRIPT_DIR}/runs/postprocess_single_${RUN_TAG}}"
@@ -42,10 +42,10 @@ FIG_DIR="${FIG_DIR:-${OUT_ROOT}/figures}"
 PASSK_LIST="${PASSK_LIST:-1,4,8,16,32,64,128,256}"
 ONLINE_WARMUP_TRACES="${ONLINE_WARMUP_TRACES:-32}"
 ONLINE_TOTAL_BUDGET="${ONLINE_TOTAL_BUDGET:-320}"
-ONLINE_SWEEP_POINTS="${ONLINE_SWEEP_POINTS:-16}"
+ONLINE_SWEEP_POINTS="${ONLINE_SWEEP_POINTS:-20}"
 ONLINE_RESAMPLES="${ONLINE_RESAMPLES:-5}"
 OFFLINE_SAMPLE_SIZE="${OFFLINE_SAMPLE_SIZE:-256}"
-OFFLINE_RESAMPLES="${OFFLINE_RESAMPLES:-10}"
+OFFLINE_RESAMPLES="${OFFLINE_RESAMPLES:-5}"
 ADAPTIVE_DIVISOR="${ADAPTIVE_DIVISOR:-5}"
 
 if [[ -z "${PKL_DIR}" ]]; then
@@ -99,7 +99,11 @@ METRICS_TXT="${REPORT_DIR}/metrics_summary.txt"
 
 echo "[INFO] PKL_DIR=${PKL_DIR}"
 echo "[INFO] MODEL=${MODEL}"
-echo "[INFO] RID=${RID}"
+if [[ -n "${RID}" ]]; then
+  echo "[INFO] RID=${RID}"
+else
+  echo "[INFO] RID=<all>"
+fi
 echo "[INFO] REPORT_DIR=${REPORT_DIR}"
 echo "[INFO] FIG_DIR=${FIG_DIR}"
 
@@ -220,11 +224,38 @@ if online_points:
     best_online = max(online_points, key=lambda x: to_float(x.get("accuracy"), -1.0))
 
 offline_metrics = deep.get("offline_dataset_metrics", {}) or {}
-offline_ranked = sorted(
-    offline_metrics.items(),
-    key=lambda kv: to_float(kv[1].get("accuracy"), -1.0),
-    reverse=True,
-)
+online_summary_rows = [
+    {
+        "sweep_index": p.get("sweep_index"),
+        "mean_threshold": p.get("threshold"),
+        "mean_token_ratio": p.get("token_ratio"),
+        "accuracy": p.get("accuracy"),
+        "surviving_path_keep_rate": p.get("surviving_path_keep_rate"),
+        "majority_vote_accuracy": p.get("majority_vote_accuracy"),
+    }
+    for p in online_points
+]
+
+offline_target_methods = [
+    "majority_voting",
+    "most_confidence",
+    "top5_confidence_base256",
+    "top10_confidence_base256",
+]
+offline_selected = []
+for method in offline_target_methods:
+    stats = offline_metrics.get(method)
+    if not stats:
+        continue
+    offline_selected.append(
+        {
+            "method": method,
+            "accuracy": stats.get("accuracy"),
+            "answer_rate": stats.get("answer_rate"),
+            "trace_accuracy_valid_only": stats.get("trace_accuracy_valid_only"),
+            "trace_accuracy_base_count": stats.get("trace_accuracy_base_count"),
+        }
+    )
 
 precot_rows: List[Dict[str, Any]] = []
 if precot_metrics_path.exists():
@@ -252,17 +283,9 @@ summary: Dict[str, Any] = {
     },
     "deepconf": {
         "summary": deep.get("summary", {}),
+        "online_summary": online_summary_rows,
         "best_online_point": best_online,
-        "offline_metrics_ranked": [
-            {
-                "method": method,
-                "accuracy": stats.get("accuracy"),
-                "trace_accuracy_valid_only": stats.get("trace_accuracy_valid_only"),
-                "trace_accuracy_base_count": stats.get("trace_accuracy_base_count"),
-                "answer_rate": stats.get("answer_rate"),
-            }
-            for method, stats in offline_ranked
-        ],
+        "offline_summary": offline_selected,
     },
     "precot": {
         "metrics_csv": str(precot_metrics_path),
@@ -293,7 +316,7 @@ lines.append(" ".join(passk_pairs) if passk_pairs else "No pass@k values found."
 lines.append("")
 
 deep_summary = deep.get("summary", {})
-lines.append("[DeepConf]")
+lines.append("[DeepConf-online summary]")
 lines.append(
     "qids_loaded={loaded} qids_skipped={skipped} online_rows={orows} offline_rows={frows}".format(
         loaded=fmt_int(deep_summary.get("num_qids_loaded")),
@@ -302,32 +325,39 @@ lines.append(
         frows=fmt_int(deep_summary.get("offline_rows")),
     )
 )
-if best_online is not None:
+if online_summary_rows:
     lines.append(
-        "Best online: sweep={sweep} acc={acc} token_ratio={tok} keep_rate={keep}".format(
-            sweep=fmt_int(best_online.get("sweep_index")),
-            acc=fmt_num(best_online.get("accuracy")),
-            tok=fmt_num(best_online.get("token_ratio")),
-            keep=fmt_num(best_online.get("surviving_path_keep_rate")),
-        )
+        "sweep_index mean_threshold mean_token_ratio accuracy surviving_path_keep_rate majority_vote_accuracy"
     )
-else:
-    lines.append("Best online: N/A")
-
-if offline_ranked:
-    lines.append("Offline methods (accuracy rank):")
-    for method, stats in offline_ranked:
+    for row in online_summary_rows:
         lines.append(
-            "  {method}: acc={acc} trace_valid={tvalid} trace_base={tbase} answer_rate={ar}".format(
-                method=method,
-                acc=fmt_num(stats.get("accuracy")),
-                tvalid=fmt_num(stats.get("trace_accuracy_valid_only")),
-                tbase=fmt_num(stats.get("trace_accuracy_base_count")),
-                ar=fmt_num(stats.get("answer_rate")),
+            "{sweep} {thr} {tok} {acc} {keep} {mv}".format(
+                sweep=fmt_int(row.get("sweep_index")),
+                thr=fmt_num(row.get("mean_threshold")),
+                tok=fmt_num(row.get("mean_token_ratio")),
+                acc=fmt_num(row.get("accuracy")),
+                keep=fmt_num(row.get("surviving_path_keep_rate")),
+                mv=fmt_num(row.get("majority_vote_accuracy")),
             )
         )
 else:
-    lines.append("Offline methods: N/A")
+    lines.append("No online summary rows found.")
+
+lines.append("")
+lines.append("[DeepConf-offline summary]")
+if offline_selected:
+    for row in offline_selected:
+        lines.append(
+            "  {method}: acc={acc} trace_valid={tvalid} trace_base={tbase} answer_rate={ar}".format(
+                method=row.get("method"),
+                acc=fmt_num(row.get("accuracy")),
+                tvalid=fmt_num(row.get("trace_accuracy_valid_only")),
+                tbase=fmt_num(row.get("trace_accuracy_base_count")),
+                ar=fmt_num(row.get("answer_rate")),
+            )
+        )
+else:
+    lines.append("No selected offline methods found.")
 lines.append("")
 
 lines.append("[Pre-CoT]")
@@ -362,4 +392,3 @@ echo "[INFO] Pre-CoT points CSV: ${PRECOT_POINTS_CSV}"
 echo "[INFO] Pre-CoT metrics CSV: ${PRECOT_METRICS_CSV}"
 echo "[INFO] Metrics summary JSON: ${METRICS_JSON}"
 echo "[INFO] Metrics summary TXT: ${METRICS_TXT}"
-

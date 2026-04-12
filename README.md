@@ -73,3 +73,12 @@ bash postprocess.sh
 运行完查看最新时间的 reports_rerun_<timestamp> 和 figures_rerun_<timestamp> 是否有文件产出，有的话导出
 
 ```
+
+4.12 Update:
+
+export PKL_DIR=/data/llm/Calibration_inference/IntraAfterCoT/deepconf_modify/sft_thinking_aime2024
+export MODEL=/data/llm/RL_model/simpleRL-reason-ckpts/verl-grpo_Qwen2.5-7B-Instruct_simplelr_qwen_level3to5_epochs1_max_response4096_batch2_rollout8_klcoef0.0001_entcoef0.001/global_step_1/actor/huggingface
+
+bash postprocess_single_model.sh
+
+
