@@ -1,0 +1,12 @@
+LICENSE
+README.md
+setup.py
+deepconf/__init__.py
+deepconf/outputs.py
+deepconf/processors.py
+deepconf/utils.py
+deepconf/wrapper.py
+deepconf.egg-info/PKG-INFO
+deepconf.egg-info/SOURCES.txt
+deepconf.egg-info/dependency_links.txt
+deepconf.egg-info/top_level.txt

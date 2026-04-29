@@ -316,7 +316,7 @@ def main():
     '''
     parser.add_argument('--window_size', type=int, default=1024,
                        help='Sliding window size for confidence computation')
-    parser.add_argument('--max_tokens', type=int, default=16384, #
+    parser.add_argument('--max_tokens', type=int, default=16384, # 16384
                        help='Maximum tokens per generation')
                        
     parser.add_argument('--temperature', type=float, default=0.7,
@@ -353,6 +353,7 @@ def main():
         tokenizer=(args.tokenizer if args.tokenizer else args.model),
         tensor_parallel_size=args.tensor_parallel_size,
         enable_prefix_caching=True,
+        gpu_memory_utilization=0.7,
     )
 
 
@@ -371,7 +372,8 @@ def main():
         top_p=args.top_p,
         repetition_penalty=args.repetition_penalty,
         max_tokens=args.max_tokens,
-        logprobs=20
+        logprobs=20,
+        stop=["<|im_end|>", "<|im_start|>user"]
     )
     
     # Run deep thinking in offline mode

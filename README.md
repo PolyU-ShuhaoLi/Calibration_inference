@@ -1,4 +1,10 @@
 cd Calibration_inference/IntraAfterCoT/deepconf_modify
+conda activate deepconf
+export MODEL=/data/llm/opd_file/opd/outputs/qwen25_7b_gold_math_rl_48k_vllm_zero2/merged_full_model
+bash run_opd_model_inference_pt2.sh
+bash run_opd_model_inference_pt3.sh
+bash run_opd_model_inference_pt4.sh
+bash run_opd_model_inference_pt5.sh
 
 针对第一个报错：主要是RL ckpt路径所导致，需要在global_step_4000后面新增子路径: /actor/huggingface/，您可以依照README重新指定一下
 
@@ -78,8 +84,6 @@ bash postprocess.sh
 
 export PKL_DIR=/data/llm/Calibration_inference/IntraAfterCoT/deepconf_modify/sft_thinking_aime2024
 export MODEL=/data/llm/RL_model/simpleRL-reason-ckpts/verl-grpo_Qwen2.5-7B-Instruct_simplelr_qwen_level3to5_epochs1_max_response4096_batch2_rollout8_klcoef0.0001_entcoef0.001/global_step_1/actor/huggingface
-
-bash postprocess_single_model.sh
 
 export MODEL=/data/llm/LlamaFactory/saves/Qwen2.5-7B-Instruct/full/train_deepscaler_simplelr_think/checkpoint-5/global_step5
 

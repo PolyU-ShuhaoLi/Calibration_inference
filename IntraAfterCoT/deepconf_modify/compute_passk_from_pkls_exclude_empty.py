@@ -6,7 +6,75 @@ Default K list:
   1, 4, 8, 16, 32, 64, 128, 256
 
 Usage examples:
-  python compute_passk_from_pkls.py --inputs outputs
+SFT: 
+  python compute_passk_from_pkls_exclude_empty.py --inputs /data/llm/llama-SFT-pkl/final --pad_empty_to_k
+--- Macro Pass@K (average over questions) ---
+Pass@1: 0.158739
+Pass@4: 0.324316
+Pass@8: 0.411096
+Pass@16: 0.497176
+Pass@32: 0.575453
+Pass@64: 0.631140
+Pass@128: 0.654038
+Pass@256: 0.666667
+===============================================
+
+RL:
+  python compute_passk_from_pkls_exclude_empty.py --inputs /data/llm/Qwen2.5-SimpleRL-data/sft_offline --pad_empty_to_k
+================ Pass@K Summary ================
+PKLs found: 30 | Used questions: 30 | Skipped: 0
+Ks: [1, 4, 8, 16, 32, 64, 128, 256]
+include_empty_as_incorrect: False
+require_full_n (n >= 256): False
+Traces/question: mean=290.50 min=134 max=320
+
+--- Macro Pass@K (average over questions) ---
+Pass@1: 0.128187
+Pass@4: 0.216457
+Pass@8: 0.259151
+Pass@16: 0.311872
+Pass@32: 0.376453
+Pass@64: 0.446399
+Pass@128: 0.512013
+Pass@256: 0.576836
+===============================================
+
+
+  python compute_passk_from_pkls_exclude_empty.py --inputs /data/llm/Qwen2.5-7B-data/final --pad_empty_to_k
+
+================ Pass@K Summary ================
+PKLs found: 30 | Used questions: 30 | Skipped: 0
+Ks: [1, 4, 8, 16, 32, 64, 128, 256]
+include_empty_as_incorrect: False
+require_full_n (n >= 256): False
+Traces/question: mean=272.00 min=208 max=317
+
+--- Macro Pass@K (average over questions) ---
+Pass@1: 0.085831
+Pass@4: 0.192458
+Pass@8: 0.258063
+Pass@16: 0.329490
+Pass@32: 0.408566
+Pass@64: 0.503080
+Pass@128: 0.601835
+Pass@256: 0.665149
+===============================================
+
+
+
+  python compute_passk_from_pkls_exclude_empty.py --inputs /data/llm/Calibration_inference/IntraAfterCoT/deepconf_modify/sft_thinking_aime2024 --pad_empty_to_k
+
+--- Macro Pass@K (average over questions) ---
+Pass@1: 0.122783
+Pass@4: 0.213376
+Pass@8: 0.265525
+Pass@16: 0.326110
+Pass@32: 0.396654
+Pass@64: 0.472824
+Pass@128: 0.549030
+Pass@256: 0.634964
+===============================================
+
   python compute_passk_from_pkls.py --inputs "outputs/*.pkl"
   python compute_passk_from_pkls.py --inputs outputs --ks 1,2,4,8,16,32,64,128,256
 """
@@ -99,7 +167,10 @@ def pass_at_k(n: int, c: int, k: int) -> float:
     return 1.0 - prod
 
 
-def extract_trace_labels(record: Dict, include_empty_as_incorrect: bool) -> Optional[List[int]]:
+def extract_trace_labels(
+    record: Dict,
+    include_empty_as_incorrect: bool,
+) -> Optional[tuple[List[int], int]]:
     traces = record.get("all_traces", [])
     if not isinstance(traces, list) or len(traces) == 0:
         return None
@@ -110,12 +181,15 @@ def extract_trace_labels(record: Dict, include_empty_as_incorrect: bool) -> Opti
         return None
 
     labels: List[int] = []
+    empty_count = 0
+
     for tr in traces:
         if not isinstance(tr, dict):
             continue
 
         ans = tr.get("extracted_answer")
         if ans is None or str(ans).strip() == "":
+            empty_count += 1
             if include_empty_as_incorrect:
                 if tr.get("is_correct", None) is not None:
                     labels.append(1 if bool(tr["is_correct"]) else 0)
@@ -130,9 +204,9 @@ def extract_trace_labels(record: Dict, include_empty_as_incorrect: bool) -> Opti
         if ground_truth:
             labels.append(1 if equal_func(str(ans), ground_truth) else 0)
 
-    if not labels:
+    if not labels and empty_count == 0:
         return None
-    return labels
+    return labels, empty_count
 
 
 def parse_ks(ks_str: str) -> List[int]:
@@ -172,6 +246,11 @@ def main() -> None:
         default=None,
         help="Optional path to write a simple JSON summary.",
     )
+    parser.add_argument(
+    "--pad_empty_to_k",
+    action="store_true",
+    help="If n < k, pad with existing empty traces as incorrect before computing pass@k.",
+    )
     args = parser.parse_args()
 
     ks = parse_ks(args.ks)
@@ -193,7 +272,46 @@ def main() -> None:
             print(f"[SKIP] {p} ({type(e).__name__}: {e})")
             skipped += 1
             continue
+        
 
+
+
+
+
+        ret = extract_trace_labels(
+            rec,
+            include_empty_as_incorrect=args.include_empty_as_incorrect,
+        )
+        if ret is None:
+            skipped += 1
+            continue
+
+        labels, empty_count = ret
+        n = len(labels)
+        c = sum(labels)
+
+        if args.require_full_n and (n + empty_count) < max_k:
+            skipped += 1
+            continue
+
+        used += 1
+        ns.append(n)
+
+        for k in ks:
+            n_eff = n
+            c_eff = c
+
+            if n_eff < k:
+                if args.pad_empty_to_k:
+                    need = k - n_eff
+                    take = min(empty_count, need)
+                    n_eff += take   # c_eff 不变，因为 empty 按 incorrect 算
+                if n_eff < k:
+                    continue
+
+            per_k_values[k].append(pass_at_k(n_eff, c_eff, k))
+
+        '''
         labels = extract_trace_labels(rec, include_empty_as_incorrect=args.include_empty_as_incorrect)
         if labels is None:
             skipped += 1
@@ -211,6 +329,7 @@ def main() -> None:
             if (not args.require_full_n) and n < k:
                 continue
             per_k_values[k].append(pass_at_k(n, c, k))
+        '''
 
     if used == 0:
         raise SystemExit("No usable questions after filtering.")
@@ -235,26 +354,6 @@ def main() -> None:
     print("===============================================")
 
     if args.json_output:
-        per_k_details: Dict[str, Dict[str, Optional[float]]] = {}
-        for k in ks:
-            vals = per_k_values[k]
-            key = f"pass@{k}"
-            if not vals:
-                per_k_details[key] = {
-                    "macro_pass_at_k": None,
-                    "numerator_sum_pass_estimator": 0.0,
-                    "denominator_question_count": 0.0,
-                    "formula": "macro_pass@k = sum(per-question pass@k estimator) / num_questions_with_n_ge_k",
-                }
-                continue
-
-            per_k_details[key] = {
-                "macro_pass_at_k": float(sum(vals) / len(vals)),
-                "numerator_sum_pass_estimator": float(sum(vals)),
-                "denominator_question_count": float(len(vals)),
-                "formula": "macro_pass@k = sum(per-question pass@k estimator) / num_questions_with_n_ge_k",
-            }
-
         out = {
             "meta": {
                 "num_pkls_found": len(paths),
@@ -266,7 +365,6 @@ def main() -> None:
                 "trace_count_mean": float(sum(ns) / len(ns)),
                 "trace_count_min": int(min(ns)),
                 "trace_count_max": int(max(ns)),
-                "per_k_details": per_k_details,
             },
             "results": passk_summary,
         }

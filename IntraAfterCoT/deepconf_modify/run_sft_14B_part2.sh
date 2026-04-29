@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-/opt/conda/envs/deepconf/bin/python}"
+export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
 
 MODEL="${MODEL:-}"
 if [[ -z "${MODEL}" ]]; then
@@ -15,12 +19,11 @@ DATASET="${DATASET:-${SCRIPT_DIR}/examples/aime_2024_convert.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/runs/full_${RUN_TAG}/sft_offline}"
 RID="${RID:-sft}"
 MODEL_TYPE="${MODEL_TYPE:-qwen}"
-QID_START="${QID_START:-3}"
+QID_START="${QID_START:-10}"
 QID_END="${QID_END:-29}"
-BUDGET="${BUDGET:-320}"
-
+BUDGET="${BUDGET:-128}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-4}"
-CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-4,5,6,7}"
+CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 
 mkdir -p "${OUTPUT_DIR}"
 
