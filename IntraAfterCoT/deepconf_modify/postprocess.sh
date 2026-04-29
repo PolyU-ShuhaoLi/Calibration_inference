@@ -19,6 +19,7 @@ PRECOT_DIR="${PROJECT_ROOT}/PreCoT"
 # Required user config
 # ----------------------------
 RL_MODEL="${RL_MODEL:-}"     # required for Pre-CoT step
+RL_TOKENIZER="${RL_TOKENIZER:-$RL_MODEL}"
 
 # ----------------------------
 # Runtime config
@@ -81,6 +82,7 @@ echo "[INFO] RUN_ROOT=${RUN_ROOT}"
 echo "[INFO] REPORT_DIR=${REPORT_DIR}"
 echo "[INFO] FIG_DIR=${FIG_DIR}"
 echo "[INFO] RL_OUT_DIR=${RL_OUT_DIR}"
+echo "[INFO] RL_TOKENIZER=${RL_TOKENIZER}"
 
 # ----------------------------
 # 3) Pass@K (JSON)
@@ -133,6 +135,7 @@ RL_TMP_CACHE="${FIG_DIR}/.tmp_cache_rl.npz"
 
 python "${PRECOT_DIR}/figure1_first_token_logits.py" \
   --model "${RL_MODEL}" \
+  --tokenizer "${RL_TOKENIZER}" \
   --data "${PRECOT_DATA}" \
   --results_dir "${RL_OUT_DIR}" \
   --output "${RL_TMP_PNG}" \
